@@ -17,44 +17,36 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from scipy import  odr
+from scipy.optimize import curve_fit
+from scipy import signal
+import itertools
 
 
-def circle(beta, x):
-    return (x[0]-beta[0])**2 + (x[1]-beta[1])**2 -beta[2]**2
-
-def calc_R(xc, yc, x,y):
-    """ calculate the distance of each 2D points from the center (xc, yc) """
-    return np.sqrt((x-xc)**2 + (y-yc)**2)
-
-def fit_trajectory(x,y):
-    
-    x_m = np.mean(x)
-    y_m = np.mean(y)
-
-    # initial guess for parameters
-    R_m = calc_R(x_m, y_m,x,y).mean()
-    beta0 = [ x_m, y_m, R_m]
-
-    # for implicit function :
-    #       data.x contains both coordinates of the points (data.x = [x, y])
-    #       data.y is the dimensionality of the response
-    lsc_data  = odr.Data(np.row_stack([x, y]), y=1)
-    lsc_model = odr.Model(circle, implicit=True)
-    lsc_odr   = odr.ODR(lsc_data, lsc_model, beta0)
-    lsc_out   = lsc_odr.run()
-
-    xc, yc, R = lsc_out.beta
-    Ri = calc_R(xc, yc, x, y)
-    residu = sum((Ri - R)**2)
-
-    return xc, yc, R
 
 
-def calc_momentum(B, R):
-    e = 1.602176634e-19  # C
-    p = e*B*R # kg.m.s^(-1)
-    p_eV = (3e8)/(5.344286e-28)
-    return p_eV
+
+def line( z,c,m):
+    return c + m*z
+
+def fit_trajectory(z,x):
+
+    # # fit
+    popt, pcov = curve_fit(line, z ,x , p0 = [1,1])
+    # get chi squared
+    chi_squared = np.sum((np.polyval([popt[0],  popt[1]], z) - x) ** 2)
+
+    return popt[0],  popt[1], chi_squared
+
+
+def calc_deflection_angle(m_1,m_2):
+    return abs(np.arctan((m_1 + m_2)/(1+(m_1*m_2))))
+
+def calc_momentum(c_1, m_1, c_2, m_2, B, l):
+
+    theta = calc_deflection_angle(m_1,m_2)
+    p = (0.3*B*l)/(2*np.sin(theta/2))
+
+    return p
 
 
 def load_df(path, filename):
@@ -82,77 +74,158 @@ def load_df(path, filename):
 
 
 
-def xz_track_reco(df):
-    # get x and z coordinates of hits in drift chambers
-    DC1_x = df["Dc1HitsVector_x"].to_numpy()
-    DC1_z = df["Dc1HitsVector_z"].to_numpy()
+def zx_track_reco(df):
 
-    DC2_x = df["Dc2HitsVector_x"].to_numpy()
+
+    # get x and z coordinates of hits in drift chambers
+    DC1_x = df["Dc1HitsVector_x"].to_numpy()/1000
+    DC1_z = df["Dc1HitsVector_z"].to_numpy()
+    DC2_x = df["Dc2HitsVector_x"].to_numpy()/1000
     DC2_z = df["Dc2HitsVector_z"].to_numpy()
 
-
-
-    xz_tracks_DC1 = {}
-    xz_tracks_DC2 = {}
-    n_backscatter_events = 0
-
-    for ev in range(0,len(DC1_z)): # loop through events
-        xz_tracks_DC1["eventNum_" + str(ev) ] = [] # store x coordinate of hits
-        xz_tracks_DC2["eventNum_" + str(ev) ] = [] # store x coordinate of hits
-        for nhits_DC1 in range(0,len(DC1_z[ev])):
-            xz_tracks_DC1["eventNum_" + str(ev)].append(DC1_x[ev][nhits_DC1])
-        for nhits_DC2 in range(0,len(DC2_z[ev])):
-            xz_tracks_DC2["eventNum_" + str(ev)].append(DC2_x[ev][nhits_DC2])
-
+    n_multiple_hits = 0
+    remove_events = []
     for ev in range(0,len(DC1_z)):
         if(
         len(np.unique(DC1_z[ev])) != len(DC1_z[ev])
         or len(np.unique(DC2_z[ev])) != len(DC2_z[ev])
-        ):   # duplicates (backscatter)
-            n_backscatter_events += 1
-            del xz_tracks_DC1["eventNum_" + str(ev) ]
-            del xz_tracks_DC2["eventNum_" + str(ev) ]
+        ):   # duplicates
+
+            n_multiple_hits += 1
+            remove_events.append(ev)
+
+    DC1_z = np.delete(DC1_z, remove_events)
+    DC2_z = np.delete(DC2_z, remove_events)
+    DC1_x = np.delete(DC1_x, remove_events)
+    DC2_x = np.delete(DC2_x, remove_events)
+
+
+    # zx_tracks_DC1 = {}
+    # zx_tracks_DC2 = {}
+    # n_multiple_hits = 0
+
+    # for ev in range(0,len(DC1_z)): # loop through events
+    #
+    #     # store number of multiple hits in event
+    #     DC1_N_multiple_hits = 0
+    #     DC2_N_multiple_hits = 0
+    #     DC1_multiple = {}
 
 
 
-    print("Number of backscatter events = " + str(n_backscatter_events))
+        # for z in range(0,len(DC1_z[ev])):
+        #     n_multiple_hits = list(DC1_z[ev]).count(DC1_z[ev][z]) # number of multiple hits for DC1 chamber z
+        #
+        #     if(n_multiple_hits > 2): # duplicate hit in zth DC1
+        #         print(DC1_z[ev])
+        #         zipped_ev = zip(DC1_z[ev], DC1_x[ev])
+        #         for L in range(0, len(DC1_z[ev])+1):
+        #             for subset in itertools.combinations(zipped_ev[0], L):
+        #                 if(len(subset) == len(DC1_z[ev])-(n_multiple_hits-1)):
+        #                     print(subset)
+        #         sys.exit()
 
-    return xz_tracks_DC1, xz_tracks_DC2
+
+            #if(DC1_z[ev][z] in np.delete(DC1_z[ev], z)): # check that this drift chamber has more than 1 hit
+            #
+            # n_multiple_hits = DC1_z[ev].count(DC1_z[ev][z]) # number of multiple hits for DC1 chamber z
+            # if(n_multiple_hits > 1): # duplicate hit in zth DC1
+            #     for z_multi in range(0,len(DC1_z[ev])):
+            #         if(z_multi == z)
+
+                #
+                # DC1_multiple[str(DC1_z[ev][z])]
 
 
-def plot_trajectories(xz_tracks, xc, yc, R, DC1 = True):
 
-    fig_xz = plt.figure()
-    for ev, hit in xz_tracks.items():
-        hits = xz_tracks[ev]
-        plt.plot( np.arange(0,len(hits)*0.5,0.5), hits, linewidth=0.2 )
+        #
+        #     zx_tracks_DC1["eventNum_" + str(ev) ]["traj"] = [DC1_z[ev],DC1_x[ev]]
+        # zx_tracks_DC2["eventNum_" + str(ev) ] = [DC2_z[ev],DC2_x[ev]]
 
-        # define trajectory fit's x and z ranges
-        z_fit = np.linspace(min(np.arange(0,len(hits)*0.5,0.5)),max(np.arange(0,len(hits)*0.5,0.5)), 1000)
-        x_fit = np.linspace(min(hits),max(hits),1000)
 
-        plt.plot(z_fit, circle([xc,yc,R],[z_fit, x_fit]), color = 'red')
+
+
+
+    print("Number of events with more than one hit in a drift chamber = " + str(n_multiple_hits))
+
+    return DC1_x, DC2_x
+
+
+def plot_trajectories(zx_tracks, c,m, DC1 = True):
+
+    z_range = np.arange(0,len(zx_tracks)*0.5,0.5)
+    fig_zx = plt.figure()
+
+    plt.scatter( z_range , zx_tracks, marker='x' )
+    # define trajectory fit's x and z ranges
+    z_fit = np.linspace(min(z_range),max(z_range), 1000)
+    x_fit = np.linspace(min(zx_tracks),max(zx_tracks),1000)
+
+    plt.plot(z_fit, c + m*z_fit, color = 'red')
 
     plt.xlabel("z [m]")
-    plt.ylabel("x")
+    plt.ylabel("x [m]")
 
     if(DC1 == True):
-        plt.ylim(-0.35, 0.5)
-        plt.vlines(np.arange(0,len(hits)*0.5,0.5), -0.35, 0.5)
-        plt.savefig("DC1_xz.pdf")
+        plt.vlines(z_range, -100, 100)
+        plt.savefig("DC1_zx.pdf")
     else:
-        plt.vlines(np.arange(0,len(hits)*0.5,0.5), -15, -6)
-        plt.ylim(-15,-6)
-        plt.savefig("DC2_xz.pdf")
+        plt.vlines(z_range, -100, 100)
+        plt.savefig("DC2_zx.pdf")
+
+
+def plot_chisquare(chisquare_DC1, chisquare_DC2):
+    fig = plt.figure()
+    plt.hist(chisquare_DC1)
+    plt.xlabel(r'$\chi^{2}$')
+    plt.ylabel('Number of Events')
+    plt.savefig("chi_square_DC1.pdf")
+
+    fig = plt.figure()
+    plt.hist(chisquare_DC2)
+    plt.xlabel(r'$\chi^{2}$')
+    plt.ylabel('Number of Events')
+    plt.savefig("chi_square_DC2.pdf")
+    return
+
+def plot_momenta(momenta):
+    fig = plt.figure()
+    plt.hist(momenta)
+    plt.xlabel(r'momentum $[GeV]$')
+    plt.ylabel('Number of Events')    
+    plt.savefig("p_dist.pdf")
+
+    return
+
 
 if __name__ == "__main__":
 
 
     df = load_df(cwd, "/B5")
-    xz_tracks_DC1, xz_tracks_DC2 = xz_track_reco(df)
-    for ev in xz_tracks_DC1:
-        hits = xz_tracks_DC1[ev]
-        xc, yc, R = fit_trajectory(hits,np.arange(0,len(hits)*0.5,0.5) )
-        print(xc,yc,R)
-        print(calc_momentum(0.5, R))
-        # plot_trajectories(xz_tracks_DC1, xc, yc, R, DC1 = True)
+    zx_tracks_DC1, zx_tracks_DC2 = zx_track_reco(df)
+    momenta = []
+    chi_square_DC1 = []
+    chi_square_DC2 = []
+    for ev in range(0,len(zx_tracks_DC1)):
+        # extract hits from event
+        hits_dc1 = zx_tracks_DC1[ev]
+        hits_dc2 = zx_tracks_DC2[ev]
+
+        # fit
+        c_1, m_1, chisq_1 = fit_trajectory(np.arange(0,len(hits_dc1)*0.5,0.5), hits_dc1 )
+        c_2, m_2, chisq_2 = fit_trajectory(np.arange(0,len(hits_dc2)*0.5,0.5), hits_dc2 )
+
+        # plot_trajectories(hits_dc1, c_1,m_1, DC1 = True)
+        # plot_trajectories(hits_dc2, c_2,m_2, DC1 = False)
+
+
+        # get momentum
+        momenta.append(calc_momentum(c_1, m_1, c_2, m_2, 0.5, 2))
+
+        # store chisquare
+        chi_square_DC1.append(chisq_1)
+        chi_square_DC2.append(chisq_2)
+
+
+    plot_momenta(momenta)
+    plot_chisquare(chi_square_DC1,chi_square_DC2)
