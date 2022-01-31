@@ -20,13 +20,19 @@ from scipy import  odr
 from scipy.optimize import curve_fit
 from scipy import signal
 import itertools
-
+import scipy
 
 
 
 
 def line( z,c,m):
     return c + m*z
+
+
+
+def gauss(x, *p):
+    A, mu, sigma = p
+    return A*np.exp(-(x-mu)**2/(2.*sigma**2))
 
 def fit_trajectory(z,x):
 
@@ -153,7 +159,10 @@ def zx_track_reco(df):
 
 def plot_trajectories(zx_tracks, c,m, DC1 = True):
 
+
     z_range = np.arange(0,len(zx_tracks)*0.5,0.5)
+
+
     fig_zx = plt.figure()
 
     plt.scatter( z_range , zx_tracks, marker='x' )
@@ -162,6 +171,7 @@ def plot_trajectories(zx_tracks, c,m, DC1 = True):
     x_fit = np.linspace(min(zx_tracks),max(zx_tracks),1000)
 
     plt.plot(z_fit, c + m*z_fit, color = 'red')
+
 
     plt.xlabel("z [m]")
     plt.ylabel("x [m]")
@@ -189,10 +199,19 @@ def plot_chisquare(chisquare_DC1, chisquare_DC2):
     return
 
 def plot_momenta(momenta):
+
     fig = plt.figure()
-    plt.hist(momenta)
+    data,bin_edges,patch  = plt.hist(momenta, bins = 50)
+
+    bin_centres = (bin_edges[:-1] + bin_edges[1:])/2
+
+    momemta_range = np.linspace(min(momenta), max(momenta), 50)
+    popt, pcov = curve_fit(gauss, bin_centres, data, p0 = [1,100,1])
+
+    plt.plot(momemta_range, gauss(bin_centres, *popt), color = 'red', label = 'Gaussian Fit')
+    # plt.xlim(0,1000)
     plt.xlabel(r'momentum $[GeV]$')
-    plt.ylabel('Number of Events')    
+    plt.ylabel('Number of Events')
     plt.savefig("p_dist.pdf")
 
     return
@@ -217,7 +236,6 @@ if __name__ == "__main__":
 
         # plot_trajectories(hits_dc1, c_1,m_1, DC1 = True)
         # plot_trajectories(hits_dc2, c_2,m_2, DC1 = False)
-
 
         # get momentum
         momenta.append(calc_momentum(c_1, m_1, c_2, m_2, 0.5, 2))
