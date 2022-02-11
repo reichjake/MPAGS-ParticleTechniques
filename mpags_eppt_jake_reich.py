@@ -35,16 +35,29 @@ def gauss(x, *p):
     A, mu, sigma = p
     return A*np.exp(-(x-mu)**2/(2.*sigma**2))
 
+def skewNorm(x, *p):
+    A, alpha, omega, xi = p
+
+    arg = (x - xi)/omega
+    phi = A*np.exp(-arg**2/2)
+    Phi = (1/2)*(1+erf(alpha*arg/np.sqrt(2)))
+
+    return (2/omega)*phi*Phi
+
 def crystalBall(x, *p):
     alpha, n, mean, sigma = p
 
-    A = ((n/abs(alpha))**n)*np.exp(-abs(alpha)**2/2)
+    x = np.array(x).astype(np.float)
+    alpha = -1*alpha
+
+    A = ((n/abs(alpha))**n)*np.exp(-1*abs(alpha)**2/2)
     B = n/abs(alpha) - abs(alpha)
-    C = (n/abs(alpha))*(1/(n-1))*np.exp(-abs(alpha)**2/2)
+    C = (n/abs(alpha))*(1/(n-1))*np.exp(-1*abs(alpha)**2/2)
     D = np.sqrt(np.pi/2)*(1+erf(abs(alpha)/np.sqrt(2)))
     N = 1/(sigma*(C+D))
 
-    f = np.piecewise(x,[(( x- mean)/sigma) > -alpha, (( x- mean)/sigma) <= -alpha] ,[N*np.exp(- (x-mean)**2/(2*sigma**2)), N*A*(B-((x-mean)/sigma))**(-n)])
+    f = np.piecewise(x,[(( x- mean)/sigma) > -1*alpha, (( x- mean)/sigma) <= -1*alpha] ,
+    [lambda x: N*np.exp(- (x-mean)**2/(2*sigma**2)), lambda x: N*A*(B-((x-mean)/sigma))**(-n)])
     # if( (( x- mean)/sigma) > -alpha ):
     #     f = N*np.exp(- (x-mean)**2/(2*sigma**2))
     # else:
@@ -258,7 +271,7 @@ def plot_momenta(momenta):
     bin_centres = (bin_edges[:-1] + bin_edges[1:])/2
 
     momemta_range = np.linspace(min(momenta), max(momenta), 1000)
-    if("pb" in suffix):
+    if("pb" not in suffix):
         popt, pcov = curve_fit(gauss, bin_centres, data, p0 = [1,50,10])
         textstr = '\n'.join((
         r'$A=%.3f \pm %.3f$' % (popt[0], np.sqrt(pcov[0][0]) ),
@@ -266,13 +279,13 @@ def plot_momenta(momenta):
         r'$\sigma=%.3f \pm %.3f$' % (abs(popt[2]),np.sqrt(pcov[2][2]) )))
         plt.plot(momemta_range, gauss(momemta_range, *popt), color = 'red', label = 'Gaussian Fit')
     else:
-        popt, pcov = curve_fit(crystalBall, bin_centres, data, p0 = [1,50,10,1])
+        popt, pcov = curve_fit(skewNorm, bin_centres, data, p0 = [800.0, 3.0, 20.0, 80.0])
         textstr = '\n'.join((
-        r'$\alpha=%.3f \pm %.3f$' % (popt[0], np.sqrt(pcov[0][0]) ),
-        r'$n=%.3f \pm %.3f$' % (popt[1],np.sqrt(pcov[1][1]) ),
-        r'$mean=%.3f \pm %.3f$' % (popt[2],np.sqrt(pcov[2][2]) ),
-        r'$\sigma=%.3f \pm %.3f$' % (abs(popt[3]),np.sqrt(pcov[3][3]) )))
-        plt.plot(momemta_range, gauss(momemta_range, *popt), color = 'red', label = 'Crystal Ball Fit')
+        r'$A=%.3f \pm %.3f$' % (popt[0], np.sqrt(pcov[0][0]) ),
+        r'$\alpha=%.3f \pm %.3f$' % (popt[1], np.sqrt(pcov[1][1]) ),
+        r'$\omega=%.3f \pm %.3f$' % (popt[2], np.sqrt(pcov[2][2]) ),
+        r'$\xi=%.3f \pm %.3f$' % (popt[3], np.sqrt(pcov[3][3]) )))
+        plt.plot(momemta_range, skewNorm(momemta_range, *popt), color = 'red', label = 'Skew Normal Fit')
     plt.legend(fontsize = f_size)
     plt.xlabel(r'momentum $[GeV]$')
     plt.ylabel('Number of Events')
@@ -290,10 +303,10 @@ def plot_momenta(momenta):
 
 
 if __name__ == "__main__":
-    nbins = 35
+    nbins = 30
     f_size = 13
 
-    suffix = "_05T_100P_pbBeforeAndAfterMag"
+    suffix = "_05T_100P_pbBeforeMag"
     df = load_df(cwd, "/B5" + suffix)
 
 
@@ -322,5 +335,5 @@ if __name__ == "__main__":
 
     momenta = np.array(momenta)
     plot_momenta(momenta)
-    plot_chisquare(chi_square_DC1,chi_square_DC2)
+    # plot_chisquare(chi_square_DC1,chi_square_DC2)
     # plot_momentum_resolution(momenta, 0.25 ,2)
